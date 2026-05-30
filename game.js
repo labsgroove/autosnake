@@ -1,30 +1,17 @@
 // Game Configuration
-const GRID_SIZE = 15;
+const GRID_SIZE = 10;
 const GRID_HEIGHT = 10;
 const CELL_SIZE = 1;
 const MOVE_INTERVAL = 150; // milliseconds between moves
 const INTERPOLATION_SPEED = 0.15; // smooth interpolation factor
-const INSTANCED_THRESHOLD = 20; // use InstancedMesh when snake exceeds this length
-
-// Shared directions array (avoids reallocation)
-const DIRECTIONS = [
-    { dx: 0, dy: -1, dz: 0 },  // up (negative y)
-    { dx: 0, dy: 1, dz: 0 },   // down (positive y)
-    { dx: -1, dy: 0, dz: 0 },  // left (negative x)
-    { dx: 1, dy: 0, dz: 0 },   // right (positive x)
-    { dx: 0, dy: 0, dz: -1 },  // down (negative z)
-    { dx: 0, dy: 0, dz: 1 }    // up (positive z)
-];
 
 // Three.js Setup
 let scene, camera, renderer;
 let snake = [];
 let food = null;
-let snakeMesh = null; // Single curved tube mesh (short snakes)
-let snakeHeadMesh = null; // Sphere for head (tube mode)
-let snakeTailMesh = null; // Sphere for tail (tube mode)
-let snakeInstancedMesh = null; // Instanced spheres (long snakes)
-let snakeDummy = new THREE.Object3D(); // Reusable dummy for matrix updates
+let snakeMesh = null; // Single curved tube mesh
+let snakeHeadMesh = null; // Sphere for head
+let snakeTailMesh = null; // Sphere for tail
 let foodMesh = null;
 let gridHelper;
 let score = 0;
@@ -120,7 +107,8 @@ function initSnake() {
     createSnakeMesh();
 }
 
-function cleanupSnakeMeshes() {
+function createSnakeMesh() {
+    // Remove old meshes
     if (snakeMesh) {
         scene.remove(snakeMesh);
         snakeMesh = null;
@@ -133,34 +121,15 @@ function cleanupSnakeMeshes() {
         scene.remove(snakeTailMesh);
         snakeTailMesh = null;
     }
-    if (snakeInstancedMesh) {
-        scene.remove(snakeInstancedMesh);
-        snakeInstancedMesh = null;
-    }
-}
 
-function createSnakeMesh() {
-    cleanupSnakeMeshes();
-
-    if (interpolatedSnake.length < INSTANCED_THRESHOLD) {
-        createTubeMesh();
-    } else {
-        createInstancedMesh();
-    }
+    // Create curved tube using Catmull-Rom spline
+    updateSnakeMesh();
 }
 
 function updateSnakeMesh() {
-    // When using instanced mesh, just update positions (very fast)
-    if (snakeInstancedMesh) {
-        updateInstancedPositions();
-        return;
-    }
-
-    // For tube mesh, we must recreate the geometry (more expensive)
-    // but only for short snakes so it stays fast
+    // Remove old mesh
     if (snakeMesh) {
         scene.remove(snakeMesh);
-        snakeMesh = null;
     }
     if (snakeHeadMesh) {
         scene.remove(snakeHeadMesh);
@@ -170,13 +139,11 @@ function updateSnakeMesh() {
         scene.remove(snakeTailMesh);
         snakeTailMesh = null;
     }
-    createTubeMesh();
-}
 
-function createTubeMesh() {
     // Need at least 2 points to create a curve
     if (interpolatedSnake.length < 2) {
-        const geometry = new THREE.SphereGeometry(0.4, 16, 16);
+        // Create a single sphere for single-segment snake
+        const geometry = new THREE.SphereGeometry(0.4, 32, 32);
         const material = new THREE.MeshPhongMaterial({
             color: 0x00ff88,
             emissive: 0x00ff88,
@@ -190,7 +157,7 @@ function createTubeMesh() {
     }
 
     // Create curve points from interpolated positions
-    const points = interpolatedSnake.map(seg =>
+    const points = interpolatedSnake.map(seg => 
         new THREE.Vector3(seg.x, seg.z, seg.y)
     );
 
@@ -199,13 +166,9 @@ function createTubeMesh() {
     curve.curveType = 'catmullrom';
     curve.tension = 0.5;
 
-    // Adaptive geometry: fewer segments for longer snakes
-    const tubularSegments = Math.max(interpolatedSnake.length * 4, 16);
-    const radialSegments = 8;
-
     // Create tube geometry along the curve
-    const tubeGeometry = new THREE.TubeGeometry(curve, tubularSegments, 0.35, radialSegments, false);
-
+    const tubeGeometry = new THREE.TubeGeometry(curve, interpolatedSnake.length * 8, 0.35, 16, false);
+    
     // Create gradient material (head brighter, tail darker)
     const material = new THREE.MeshPhongMaterial({
         color: 0x00cc66,
@@ -218,7 +181,7 @@ function createTubeMesh() {
     scene.add(snakeMesh);
 
     // Add head sphere (brighter)
-    const headGeometry = new THREE.SphereGeometry(0.35, 16, 16);
+    const headGeometry = new THREE.SphereGeometry(0.35, 32, 32);
     const headMaterial = new THREE.MeshPhongMaterial({
         color: 0x00ff88,
         emissive: 0x00ff88,
@@ -231,7 +194,7 @@ function createTubeMesh() {
     scene.add(snakeHeadMesh);
 
     // Add tail sphere (slightly smaller)
-    const tailGeometry = new THREE.SphereGeometry(0.35, 16, 16);
+    const tailGeometry = new THREE.SphereGeometry(0.35, 32, 32);
     const tailMaterial = new THREE.MeshPhongMaterial({
         color: 0x00aa55,
         emissive: 0x00aa55,
@@ -244,63 +207,8 @@ function createTubeMesh() {
     scene.add(snakeTailMesh);
 }
 
-function createInstancedMesh() {
-    const count = interpolatedSnake.length;
-    const geometry = new THREE.SphereGeometry(0.3, 8, 8);
-    const material = new THREE.MeshPhongMaterial({
-        color: 0x00cc66,
-        emissive: 0x00cc66,
-        emissiveIntensity: 0.3,
-        shininess: 100
-    });
-
-    snakeInstancedMesh = new THREE.InstancedMesh(geometry, material, count);
-    snakeInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-
-    scene.add(snakeInstancedMesh);
-    updateInstancedPositions();
-
-    // Also add head/tail for visual polish
-    const headGeometry = new THREE.SphereGeometry(0.35, 12, 12);
-    const headMaterial = new THREE.MeshPhongMaterial({
-        color: 0x00ff88,
-        emissive: 0x00ff88,
-        emissiveIntensity: 0.4,
-        shininess: 100
-    });
-    snakeHeadMesh = new THREE.Mesh(headGeometry, headMaterial);
-    const headPos = interpolatedSnake[0];
-    snakeHeadMesh.position.set(headPos.x, headPos.z, headPos.y);
-    scene.add(snakeHeadMesh);
-
-    const tailGeometry = new THREE.SphereGeometry(0.3, 8, 8);
-    const tailMaterial = new THREE.MeshPhongMaterial({
-        color: 0x00aa55,
-        emissive: 0x00aa55,
-        emissiveIntensity: 0.2,
-        shininess: 100
-    });
-    snakeTailMesh = new THREE.Mesh(tailGeometry, tailMaterial);
-    const tailPos = interpolatedSnake[interpolatedSnake.length - 1];
-    snakeTailMesh.position.set(tailPos.x, tailPos.z, tailPos.y);
-    scene.add(snakeTailMesh);
-}
-
-function updateInstancedPositions() {
-    if (!snakeInstancedMesh) return;
-
-    const count = interpolatedSnake.length;
-    const dummy = snakeDummy;
-
-    for (let i = 0; i < count; i++) {
-        const pos = interpolatedSnake[i];
-        dummy.position.set(pos.x, pos.z, pos.y);
-        dummy.updateMatrix();
-        snakeInstancedMesh.setMatrixAt(i, dummy.matrix);
-    }
-    snakeInstancedMesh.instanceMatrix.needsUpdate = true;
-
-    // Update head/tail sphere positions
+function updateSnakeMeshPositions() {
+    // Update head and tail sphere positions for smooth interpolation
     if (snakeHeadMesh && interpolatedSnake.length > 0) {
         const headPos = interpolatedSnake[0];
         snakeHeadMesh.position.set(headPos.x, headPos.z, headPos.y);
@@ -319,7 +227,7 @@ function spawnFood() {
         x = Math.floor(Math.random() * GRID_SIZE);
         y = Math.floor(Math.random() * GRID_SIZE);
         z = Math.floor(Math.random() * GRID_HEIGHT);
-
+        
         validPosition = !snake.some(segment => segment.x === x && segment.y === y && segment.z === z);
     }
 
@@ -331,7 +239,7 @@ function spawnFood() {
     }
 
     // Create new food mesh with glow effect
-    const geometry = new THREE.SphereGeometry(0.4, 16, 16);
+    const geometry = new THREE.SphereGeometry(0.4, 32, 32);
     const material = new THREE.MeshPhongMaterial({
         color: 0xff4444,
         emissive: 0xff4444,
@@ -348,10 +256,18 @@ function getNextMove() {
     if (!food) return null;
 
     const head = snake[0];
+    const directions = [
+        { dx: 0, dy: -1, dz: 0 },  // up (negative y)
+        { dx: 0, dy: 1, dz: 0 },   // down (positive y)
+        { dx: -1, dy: 0, dz: 0 },  // left (negative x)
+        { dx: 1, dy: 0, dz: 0 },   // right (positive x)
+        { dx: 0, dy: 0, dz: -1 },  // down (negative z)
+        { dx: 0, dy: 0, dz: 1 }    // up (positive z)
+    ];
 
     // Try to find path to food using BFS
     const path = findPath(head, food);
-
+    
     if (path && path.length > 1) {
         const nextPos = path[1];
         return {
@@ -362,11 +278,11 @@ function getNextMove() {
     }
 
     // If no path to food, try to find any valid move
-    for (const dir of DIRECTIONS) {
+    for (const dir of directions) {
         const newX = head.x + dir.dx;
         const newY = head.y + dir.dy;
         const newZ = head.z + dir.dz;
-
+        
         if (isValidMove(newX, newY, newZ)) {
             return { x: newX, y: newY, z: newZ };
         }
@@ -375,52 +291,38 @@ function getNextMove() {
     return null; // No valid moves
 }
 
-function isInBounds(x, y, z) {
-    return x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_HEIGHT;
-}
-
-// Optimized BFS with parent tracking (no array copying) and index-based queue (no shift O(n))
 function findPath(start, end) {
-    // Pre-compute occupied positions (snake body except tail) for O(1) lookups
-    const occupied = new Set();
-    for (let i = 0; i < snake.length - 1; i++) {
-        occupied.add(`${snake[i].x},${snake[i].y},${snake[i].z}`);
-    }
-
-    const queue = [start];
+    const queue = [[start]];
     const visited = new Set();
-    const parent = new Map();
+    visited.add(`${start.x},${start.y},${start.z}`);
 
-    const startKey = `${start.x},${start.y},${start.z}`;
-    visited.add(startKey);
-    parent.set(startKey, null);
-
-    let head = 0; // Index-based dequeue: O(1) instead of Array.shift() O(n)
-
-    while (head < queue.length) {
-        const current = queue[head++];
+    while (queue.length > 0) {
+        const path = queue.shift();
+        const current = path[path.length - 1];
 
         if (current.x === end.x && current.y === end.y && current.z === end.z) {
-            // Reconstruct path (only once, not per node)
-            const path = [];
-            let node = current;
-            while (node) {
-                path.push(node);
-                node = parent.get(`${node.x},${node.y},${node.z}`);
-            }
-            return path.reverse();
+            return path;
         }
 
-        for (const dir of DIRECTIONS) {
+        const directions = [
+            { dx: 0, dy: -1, dz: 0 },
+            { dx: 0, dy: 1, dz: 0 },
+            { dx: -1, dy: 0, dz: 0 },
+            { dx: 1, dy: 0, dz: 0 },
+            { dx: 0, dy: 0, dz: -1 },
+            { dx: 0, dy: 0, dz: 1 }
+        ];
+
+        for (const dir of directions) {
             const newX = current.x + dir.dx;
             const newY = current.y + dir.dy;
             const newZ = current.z + dir.dz;
             const key = `${newX},${newY},${newZ}`;
 
-            if (isInBounds(newX, newY, newZ) && !occupied.has(key) && !visited.has(key)) {
+            if (isValidMove(newX, newY, newZ) && !visited.has(key)) {
                 visited.add(key);
-                parent.set(key, current);
-                queue.push({ x: newX, y: newY, z: newZ });
+                const newPath = [...path, { x: newX, y: newY, z: newZ }];
+                queue.push(newPath);
             }
         }
     }
@@ -429,7 +331,8 @@ function findPath(start, end) {
 }
 
 function isValidMove(x, y, z) {
-    if (!isInBounds(x, y, z)) {
+    // Check bounds
+    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE || z < 0 || z >= GRID_HEIGHT) {
         return false;
     }
 
@@ -456,29 +359,42 @@ function moveSnake() {
 
     // Check if ate food
     if (food && newHead.x === food.x && newHead.y === food.y && newHead.z === food.z) {
-        const prevLength = snake.length;
         snake.unshift(newHead);
+        // Add new interpolated position at head
         interpolatedSnake.unshift({ x: newHead.x, y: newHead.y, z: newHead.z });
         score += 10;
         updateUI();
         createParticles(food.x, food.z, food.y, 0xff4444);
         playSound('eat');
         spawnFood();
-        // Only recreate mesh when snake grows (length changed)
-        createSnakeMesh();
+        createSnakeMesh(); // Only recreate mesh when snake grows
     } else {
         snake.unshift(newHead);
         snake.pop();
+        // Update interpolated positions to match new snake structure
+        // Keep the same number of interpolated segments
         interpolatedSnake.unshift({ x: newHead.x, y: newHead.y, z: newHead.z });
         interpolatedSnake.pop();
-        // Update mesh (fast for instanced, recreates tube for short snakes)
+        // Update tube mesh when snake moves (but not every frame)
         updateSnakeMesh();
     }
 }
 
 function restartGame() {
-    cleanupSnakeMeshes();
-
+    // Clear snake mesh
+    if (snakeMesh) {
+        scene.remove(snakeMesh);
+        snakeMesh = null;
+    }
+    if (snakeHeadMesh) {
+        scene.remove(snakeHeadMesh);
+        snakeHeadMesh = null;
+    }
+    if (snakeTailMesh) {
+        scene.remove(snakeTailMesh);
+        snakeTailMesh = null;
+    }
+    
     // Clear food
     if (foodMesh) {
         scene.remove(foodMesh);
@@ -508,7 +424,7 @@ function interpolateSnakePositions() {
     for (let i = 0; i < interpolatedSnake.length && i < snake.length; i++) {
         const target = snake[i];
         const current = interpolatedSnake[i];
-
+        
         // Linear interpolation (lerp)
         current.x += (target.x - current.x) * INTERPOLATION_SPEED;
         current.y += (target.y - current.y) * INTERPOLATION_SPEED;
@@ -535,20 +451,7 @@ function animate(currentTime) {
     interpolateSnakePositions();
 
     // Update mesh positions for smooth visual movement
-    if (snakeInstancedMesh) {
-        updateInstancedPositions();
-    } else if (snakeHeadMesh) {
-        // Tube mode: update head/tail sphere positions only
-        // (tube geometry cannot be partially updated, but head/tail spheres can)
-        if (interpolatedSnake.length > 0) {
-            const headPos = interpolatedSnake[0];
-            snakeHeadMesh.position.set(headPos.x, headPos.z, headPos.y);
-        }
-        if (snakeTailMesh && interpolatedSnake.length > 0) {
-            const tailPos = interpolatedSnake[interpolatedSnake.length - 1];
-            snakeTailMesh.position.set(tailPos.x, tailPos.z, tailPos.y);
-        }
-    }
+    updateSnakeMeshPositions();
 
     // Rotate food for visual effect
     if (foodMesh) {
@@ -560,8 +463,8 @@ function animate(currentTime) {
     // Update particles
     updateParticles();
 
-    // Animate snake glow (only when material exists)
-    if (snakeMesh && snakeMesh.material) {
+    // Animate snake glow
+    if (snakeMesh) {
         const pulse = 0.3 + Math.sin(currentTime * 0.01) * 0.1;
         snakeMesh.material.emissiveIntensity = pulse;
     }
@@ -580,24 +483,24 @@ function animate(currentTime) {
 // Particle system
 function createParticles(x, y, z, color) {
     const particleCount = 20;
-
+    
     for (let i = 0; i < particleCount; i++) {
-        const geometry = new THREE.SphereGeometry(0.1, 6, 6);
+        const geometry = new THREE.SphereGeometry(0.1, 8, 8);
         const material = new THREE.MeshBasicMaterial({
             color: color,
             transparent: true,
             opacity: 1
         });
         const mesh = new THREE.Mesh(geometry, material);
-
+        
         mesh.position.set(x, y, z);
-
+        
         const velocity = {
             x: (Math.random() - 0.5) * 0.2,
             y: (Math.random() - 0.5) * 0.2,
             z: (Math.random() - 0.5) * 0.2
         };
-
+        
         scene.add(mesh);
         particles.push({ mesh, velocity, life: 1.0 });
     }
@@ -606,14 +509,14 @@ function createParticles(x, y, z, color) {
 function updateParticles() {
     for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-
+        
         p.mesh.position.x += p.velocity.x;
         p.mesh.position.y += p.velocity.y;
         p.mesh.position.z += p.velocity.z;
-
+        
         p.life -= 0.02;
         p.mesh.material.opacity = p.life;
-
+        
         if (p.life <= 0) {
             scene.remove(p.mesh);
             particles.splice(i, 1);
@@ -632,13 +535,13 @@ function initAudio() {
 
 function playSound(type) {
     if (!audioContext) return;
-
+    
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
-
+    
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
-
+    
     switch (type) {
         case 'eat':
             oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
