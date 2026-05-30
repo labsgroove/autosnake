@@ -194,7 +194,7 @@ function updateSnakeMesh() {
     scene.add(snakeHeadMesh);
 
     // Add tail sphere (slightly smaller)
-    const tailGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+    const tailGeometry = new THREE.SphereGeometry(0.35, 32, 32);
     const tailMaterial = new THREE.MeshPhongMaterial({
         color: 0x00aa55,
         emissive: 0x00aa55,
