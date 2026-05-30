@@ -207,6 +207,18 @@ function updateSnakeMesh() {
     scene.add(snakeTailMesh);
 }
 
+function updateSnakeMeshPositions() {
+    // Update head and tail sphere positions for smooth interpolation
+    if (snakeHeadMesh && interpolatedSnake.length > 0) {
+        const headPos = interpolatedSnake[0];
+        snakeHeadMesh.position.set(headPos.x, headPos.z, headPos.y);
+    }
+    if (snakeTailMesh && interpolatedSnake.length > 0) {
+        const tailPos = interpolatedSnake[interpolatedSnake.length - 1];
+        snakeTailMesh.position.set(tailPos.x, tailPos.z, tailPos.y);
+    }
+}
+
 function spawnFood() {
     let validPosition = false;
     let x, y, z;
@@ -355,7 +367,7 @@ function moveSnake() {
         createParticles(food.x, food.z, food.y, 0xff4444);
         playSound('eat');
         spawnFood();
-        createSnakeMesh();
+        createSnakeMesh(); // Only recreate mesh when snake grows
     } else {
         snake.unshift(newHead);
         snake.pop();
@@ -363,6 +375,8 @@ function moveSnake() {
         // Keep the same number of interpolated segments
         interpolatedSnake.unshift({ x: newHead.x, y: newHead.y, z: newHead.z });
         interpolatedSnake.pop();
+        // Update tube mesh when snake moves (but not every frame)
+        updateSnakeMesh();
     }
 }
 
@@ -436,8 +450,8 @@ function animate(currentTime) {
     // Smoothly interpolate snake positions
     interpolateSnakePositions();
 
-    // Update snake mesh with interpolated positions
-    updateSnakeMesh();
+    // Update mesh positions for smooth visual movement
+    updateSnakeMeshPositions();
 
     // Rotate food for visual effect
     if (foodMesh) {
