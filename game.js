@@ -1,5 +1,6 @@
 // Game Configuration
 const GRID_SIZE = 15;
+const GRID_HEIGHT = 10;
 const CELL_SIZE = 1;
 const MOVE_INTERVAL = 150; // milliseconds between moves
 
@@ -13,6 +14,8 @@ let gridHelper;
 let score = 0;
 let lastMoveTime = 0;
 let gameRunning = true;
+let particles = [];
+let audioContext;
 
 // Initialize the game
 function init() {
@@ -27,8 +30,8 @@ function init() {
         0.1,
         1000
     );
-    camera.position.set(GRID_SIZE / 2, GRID_SIZE * 1.2, GRID_SIZE * 1.2);
-    camera.lookAt(GRID_SIZE / 2, 0, GRID_SIZE / 2);
+    camera.position.set(GRID_SIZE / 2, GRID_HEIGHT * 1.5, GRID_SIZE * 1.5);
+    camera.lookAt(GRID_SIZE / 2, GRID_HEIGHT / 2, GRID_SIZE / 2);
 
     // Renderer setup
     renderer = new THREE.WebGLRenderer({
@@ -39,12 +42,19 @@ function init() {
     renderer.setPixelRatio(window.devicePixelRatio);
 
     // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
     directionalLight.position.set(10, 20, 10);
     scene.add(directionalLight);
+
+    const pointLight = new THREE.PointLight(0x00ff88, 1, 20);
+    pointLight.position.set(GRID_SIZE / 2, 5, GRID_SIZE / 2);
+    scene.add(pointLight);
+
+    // Initialize audio
+    initAudio();
 
     // Create grid floor
     createGrid();
@@ -63,45 +73,36 @@ function init() {
 }
 
 function createGrid() {
-    // Create a grid floor
-    const gridGeometry = new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE);
+    // Create 3D grid box
+    const boxGeometry = new THREE.BoxGeometry(GRID_SIZE, GRID_HEIGHT, GRID_SIZE);
+    const edgesGeometry = new THREE.EdgesGeometry(boxGeometry);
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.3 });
+    const wireframe = new THREE.LineSegments(edgesGeometry, lineMaterial);
+    wireframe.position.set(GRID_SIZE / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, GRID_SIZE / 2 - 0.5);
+    scene.add(wireframe);
+
+    // Create grid planes for each axis
     const gridMaterial = new THREE.MeshBasicMaterial({
         color: 0x2a2a4e,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.1
     });
-    const gridFloor = new THREE.Mesh(gridGeometry, gridMaterial);
-    gridFloor.rotation.x = -Math.PI / 2;
-    gridFloor.position.set(GRID_SIZE / 2 - 0.5, -0.5, GRID_SIZE / 2 - 0.5);
-    scene.add(gridFloor);
 
-    // Grid lines
-    const gridHelper = new THREE.GridHelper(GRID_SIZE, GRID_SIZE, 0x444466, 0x333355);
-    gridHelper.position.set(GRID_SIZE / 2 - 0.5, -0.49, GRID_SIZE / 2 - 0.5);
-    scene.add(gridHelper);
+    // Floor grid
+    const floorGrid = new THREE.GridHelper(GRID_SIZE, GRID_SIZE, 0x444466, 0x333355);
+    floorGrid.position.set(GRID_SIZE / 2 - 0.5, -0.5, GRID_SIZE / 2 - 0.5);
+    scene.add(floorGrid);
 
-    // Border walls
-    const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.3 });
-    const wallHeight = 0.5;
-    
-    // Create walls around the grid
-    const walls = [
-        { pos: [GRID_SIZE / 2 - 0.5, wallHeight / 2, -0.5], size: [GRID_SIZE, wallHeight, 0.1] },
-        { pos: [GRID_SIZE / 2 - 0.5, wallHeight / 2, GRID_SIZE - 0.5], size: [GRID_SIZE, wallHeight, 0.1] },
-        { pos: [-0.5, wallHeight / 2, GRID_SIZE / 2 - 0.5], size: [0.1, wallHeight, GRID_SIZE] },
-        { pos: [GRID_SIZE - 0.5, wallHeight / 2, GRID_SIZE / 2 - 0.5], size: [0.1, wallHeight, GRID_SIZE] }
-    ];
-
-    walls.forEach(wall => {
-        const geometry = new THREE.BoxGeometry(...wall.size);
-        const mesh = new THREE.Mesh(geometry, wallMaterial);
-        mesh.position.set(...wall.pos);
-        scene.add(mesh);
-    });
+    // Ceiling grid
+    const ceilingGrid = new THREE.GridHelper(GRID_SIZE, GRID_SIZE, 0x444466, 0x333355);
+    ceilingGrid.position.set(GRID_SIZE / 2 - 0.5, GRID_HEIGHT - 0.5, GRID_SIZE / 2 - 0.5);
+    scene.add(ceilingGrid);
 }
 
 function initSnake() {
     snake = [
-        { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2) }
+        { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2), z: Math.floor(GRID_HEIGHT / 2) }
     ];
     score = 0;
     updateUI();
@@ -113,16 +114,46 @@ function createSnakeMeshes() {
     snakeMeshes.forEach(mesh => scene.remove(mesh));
     snakeMeshes = [];
 
-    // Create new meshes
+    // Create new meshes with cylindrical segments
     snake.forEach((segment, index) => {
-        const geometry = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+        const geometry = new THREE.CylinderGeometry(0.4, 0.4, 0.8, 16);
         const material = new THREE.MeshPhongMaterial({
             color: index === 0 ? 0x00ff88 : 0x00cc66,
             emissive: index === 0 ? 0x00ff88 : 0x00cc66,
-            emissiveIntensity: 0.2
+            emissiveIntensity: 0.3,
+            shininess: 100
         });
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(segment.x, 0, segment.y);
+        mesh.position.set(segment.x, segment.z, segment.y);
+        
+        // Rotate cylinder to align with movement direction
+        if (index < snake.length - 1) {
+            const nextSegment = snake[index + 1];
+            const direction = new THREE.Vector3(
+                nextSegment.x - segment.x,
+                nextSegment.z - segment.z,
+                nextSegment.y - segment.y
+            ).normalize();
+            
+            const up = new THREE.Vector3(0, 1, 0);
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromUnitVectors(up, direction);
+            mesh.setRotationFromQuaternion(quaternion);
+        } else if (index > 0) {
+            // For the tail, use the direction from previous segment
+            const prevSegment = snake[index - 1];
+            const direction = new THREE.Vector3(
+                segment.x - prevSegment.x,
+                segment.z - prevSegment.z,
+                segment.y - prevSegment.y
+            ).normalize();
+            
+            const up = new THREE.Vector3(0, 1, 0);
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromUnitVectors(up, direction);
+            mesh.setRotationFromQuaternion(quaternion);
+        }
+        
         scene.add(mesh);
         snakeMeshes.push(mesh);
     });
@@ -131,38 +162,68 @@ function createSnakeMeshes() {
 function updateSnakeMeshes() {
     snake.forEach((segment, index) => {
         if (snakeMeshes[index]) {
-            snakeMeshes[index].position.set(segment.x, 0, segment.y);
+            snakeMeshes[index].position.set(segment.x, segment.z, segment.y);
+            
+            // Update rotation based on movement direction
+            if (index < snake.length - 1) {
+                const nextSegment = snake[index + 1];
+                const direction = new THREE.Vector3(
+                    nextSegment.x - segment.x,
+                    nextSegment.z - segment.z,
+                    nextSegment.y - segment.y
+                ).normalize();
+                
+                const up = new THREE.Vector3(0, 1, 0);
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromUnitVectors(up, direction);
+                snakeMeshes[index].setRotationFromQuaternion(quaternion);
+            } else if (index > 0) {
+                // For the tail, use the direction from previous segment
+                const prevSegment = snake[index - 1];
+                const direction = new THREE.Vector3(
+                    segment.x - prevSegment.x,
+                    segment.z - prevSegment.z,
+                    segment.y - prevSegment.y
+                ).normalize();
+                
+                const up = new THREE.Vector3(0, 1, 0);
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromUnitVectors(up, direction);
+                snakeMeshes[index].setRotationFromQuaternion(quaternion);
+            }
         }
     });
 }
 
 function spawnFood() {
     let validPosition = false;
-    let x, y;
+    let x, y, z;
 
     while (!validPosition) {
         x = Math.floor(Math.random() * GRID_SIZE);
         y = Math.floor(Math.random() * GRID_SIZE);
+        z = Math.floor(Math.random() * GRID_HEIGHT);
         
-        validPosition = !snake.some(segment => segment.x === x && segment.y === y);
+        validPosition = !snake.some(segment => segment.x === x && segment.y === y && segment.z === z);
     }
 
-    food = { x, y };
+    food = { x, y, z };
 
     // Remove old food mesh
     if (foodMesh) {
         scene.remove(foodMesh);
     }
 
-    // Create new food mesh
-    const geometry = new THREE.SphereGeometry(0.4, 16, 16);
+    // Create new food mesh with glow effect
+    const geometry = new THREE.SphereGeometry(0.4, 32, 32);
     const material = new THREE.MeshPhongMaterial({
         color: 0xff4444,
         emissive: 0xff4444,
-        emissiveIntensity: 0.5
+        emissiveIntensity: 0.8,
+        shininess: 100
     });
     foodMesh = new THREE.Mesh(geometry, material);
-    foodMesh.position.set(x, 0, y);
+    foodMesh.position.set(x, z, y);
     scene.add(foodMesh);
 }
 
@@ -172,10 +233,12 @@ function getNextMove() {
 
     const head = snake[0];
     const directions = [
-        { dx: 0, dy: -1 },  // up
-        { dx: 0, dy: 1 },   // down
-        { dx: -1, dy: 0 },  // left
-        { dx: 1, dy: 0 }    // right
+        { dx: 0, dy: -1, dz: 0 },  // up (negative y)
+        { dx: 0, dy: 1, dz: 0 },   // down (positive y)
+        { dx: -1, dy: 0, dz: 0 },  // left (negative x)
+        { dx: 1, dy: 0, dz: 0 },   // right (positive x)
+        { dx: 0, dy: 0, dz: -1 },  // down (negative z)
+        { dx: 0, dy: 0, dz: 1 }    // up (positive z)
     ];
 
     // Try to find path to food using BFS
@@ -185,7 +248,8 @@ function getNextMove() {
         const nextPos = path[1];
         return {
             x: nextPos.x,
-            y: nextPos.y
+            y: nextPos.y,
+            z: nextPos.z
         };
     }
 
@@ -193,9 +257,10 @@ function getNextMove() {
     for (const dir of directions) {
         const newX = head.x + dir.dx;
         const newY = head.y + dir.dy;
+        const newZ = head.z + dir.dz;
         
-        if (isValidMove(newX, newY)) {
-            return { x: newX, y: newY };
+        if (isValidMove(newX, newY, newZ)) {
+            return { x: newX, y: newY, z: newZ };
         }
     }
 
@@ -205,31 +270,34 @@ function getNextMove() {
 function findPath(start, end) {
     const queue = [[start]];
     const visited = new Set();
-    visited.add(`${start.x},${start.y}`);
+    visited.add(`${start.x},${start.y},${start.z}`);
 
     while (queue.length > 0) {
         const path = queue.shift();
         const current = path[path.length - 1];
 
-        if (current.x === end.x && current.y === end.y) {
+        if (current.x === end.x && current.y === end.y && current.z === end.z) {
             return path;
         }
 
         const directions = [
-            { dx: 0, dy: -1 },
-            { dx: 0, dy: 1 },
-            { dx: -1, dy: 0 },
-            { dx: 1, dy: 0 }
+            { dx: 0, dy: -1, dz: 0 },
+            { dx: 0, dy: 1, dz: 0 },
+            { dx: -1, dy: 0, dz: 0 },
+            { dx: 1, dy: 0, dz: 0 },
+            { dx: 0, dy: 0, dz: -1 },
+            { dx: 0, dy: 0, dz: 1 }
         ];
 
         for (const dir of directions) {
             const newX = current.x + dir.dx;
             const newY = current.y + dir.dy;
-            const key = `${newX},${newY}`;
+            const newZ = current.z + dir.dz;
+            const key = `${newX},${newY},${newZ}`;
 
-            if (isValidMove(newX, newY) && !visited.has(key)) {
+            if (isValidMove(newX, newY, newZ) && !visited.has(key)) {
                 visited.add(key);
-                const newPath = [...path, { x: newX, y: newY }];
+                const newPath = [...path, { x: newX, y: newY, z: newZ }];
                 queue.push(newPath);
             }
         }
@@ -238,15 +306,15 @@ function findPath(start, end) {
     return null; // No path found
 }
 
-function isValidMove(x, y) {
+function isValidMove(x, y, z) {
     // Check bounds
-    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
+    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE || z < 0 || z >= GRID_HEIGHT) {
         return false;
     }
 
     // Check collision with snake (except tail, which will move)
     for (let i = 0; i < snake.length - 1; i++) {
-        if (snake[i].x === x && snake[i].y === y) {
+        if (snake[i].x === x && snake[i].y === y && snake[i].z === z) {
             return false;
         }
     }
@@ -263,13 +331,15 @@ function moveSnake() {
         return;
     }
 
-    const newHead = { x: nextMove.x, y: nextMove.y };
+    const newHead = { x: nextMove.x, y: nextMove.y, z: nextMove.z };
 
     // Check if ate food
-    if (food && newHead.x === food.x && newHead.y === food.y) {
+    if (food && newHead.x === food.x && newHead.y === food.y && newHead.z === food.z) {
         snake.unshift(newHead);
         score += 10;
         updateUI();
+        createParticles(food.x, food.z, food.y, 0xff4444);
+        playSound('eat');
         spawnFood();
         createSnakeMeshes();
     } else {
@@ -290,9 +360,14 @@ function restartGame() {
         foodMesh = null;
     }
 
+    // Clear particles
+    particles.forEach(p => scene.remove(p.mesh));
+    particles = [];
+
     // Reset game
     initSnake();
     spawnFood();
+    playSound('gameover');
 }
 
 function updateUI() {
@@ -318,10 +393,102 @@ function animate(currentTime) {
     // Rotate food for visual effect
     if (foodMesh) {
         foodMesh.rotation.y += 0.05;
-        foodMesh.position.y = 0.1 + Math.sin(currentTime * 0.005) * 0.1;
+        foodMesh.rotation.x += 0.03;
+        foodMesh.position.y = food.z + Math.sin(currentTime * 0.005) * 0.15;
     }
 
+    // Update particles
+    updateParticles();
+
+    // Animate snake glow
+    snakeMeshes.forEach((mesh, index) => {
+        const pulse = 0.3 + Math.sin(currentTime * 0.01 + index * 0.5) * 0.1;
+        mesh.material.emissiveIntensity = pulse;
+    });
+
     renderer.render(scene, camera);
+}
+
+// Particle system
+function createParticles(x, y, z, color) {
+    const particleCount = 20;
+    
+    for (let i = 0; i < particleCount; i++) {
+        const geometry = new THREE.SphereGeometry(0.1, 8, 8);
+        const material = new THREE.MeshBasicMaterial({
+            color: color,
+            transparent: true,
+            opacity: 1
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        
+        mesh.position.set(x, y, z);
+        
+        const velocity = {
+            x: (Math.random() - 0.5) * 0.2,
+            y: (Math.random() - 0.5) * 0.2,
+            z: (Math.random() - 0.5) * 0.2
+        };
+        
+        scene.add(mesh);
+        particles.push({ mesh, velocity, life: 1.0 });
+    }
+}
+
+function updateParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        
+        p.mesh.position.x += p.velocity.x;
+        p.mesh.position.y += p.velocity.y;
+        p.mesh.position.z += p.velocity.z;
+        
+        p.life -= 0.02;
+        p.mesh.material.opacity = p.life;
+        
+        if (p.life <= 0) {
+            scene.remove(p.mesh);
+            particles.splice(i, 1);
+        }
+    }
+}
+
+// Audio system
+function initAudio() {
+    try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+        console.log('Audio not supported');
+    }
+}
+
+function playSound(type) {
+    if (!audioContext) return;
+    
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    switch (type) {
+        case 'eat':
+            oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+            break;
+        case 'gameover':
+            oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.3);
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.3);
+            break;
+    }
 }
 
 // Register service worker for PWA
