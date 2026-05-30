@@ -3,12 +3,13 @@ const GRID_SIZE = 15;
 const GRID_HEIGHT = 10;
 const CELL_SIZE = 1;
 const MOVE_INTERVAL = 150; // milliseconds between moves
+const INTERPOLATION_SPEED = 0.15; // smooth interpolation factor
 
 // Three.js Setup
 let scene, camera, renderer;
 let snake = [];
 let food = null;
-let snakeMeshes = [];
+let snakeMesh = null; // Single curved tube mesh
 let foodMesh = null;
 let gridHelper;
 let score = 0;
@@ -16,6 +17,7 @@ let lastMoveTime = 0;
 let gameRunning = true;
 let particles = [];
 let audioContext;
+let interpolatedSnake = []; // Smoothly interpolated positions
 
 // Initialize the game
 function init() {
@@ -96,95 +98,69 @@ function initSnake() {
     snake = [
         { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2), z: Math.floor(GRID_HEIGHT / 2) }
     ];
+    // Initialize interpolated positions to match grid positions
+    interpolatedSnake = snake.map(seg => ({ x: seg.x, y: seg.y, z: seg.z }));
     score = 0;
     updateUI();
-    createSnakeMeshes();
+    createSnakeMesh();
 }
 
-function createSnakeMeshes() {
-    // Remove old meshes
-    snakeMeshes.forEach(mesh => scene.remove(mesh));
-    snakeMeshes = [];
+function createSnakeMesh() {
+    // Remove old mesh
+    if (snakeMesh) {
+        scene.remove(snakeMesh);
+        snakeMesh = null;
+    }
 
-    // Create new meshes with cylindrical segments
-    snake.forEach((segment, index) => {
-        const geometry = new THREE.CylinderGeometry(0.4, 0.4, 1, 16);
+    // Create curved tube using Catmull-Rom spline
+    updateSnakeMesh();
+}
+
+function updateSnakeMesh() {
+    // Remove old mesh
+    if (snakeMesh) {
+        scene.remove(snakeMesh);
+    }
+
+    // Need at least 2 points to create a curve
+    if (interpolatedSnake.length < 2) {
+        // Create a single sphere for single-segment snake
+        const geometry = new THREE.SphereGeometry(0.4, 32, 32);
         const material = new THREE.MeshPhongMaterial({
-            color: index === 0 ? 0x00ff88 : 0x00cc66,
-            emissive: index === 0 ? 0x00ff88 : 0x00cc66,
+            color: 0x00ff88,
+            emissive: 0x00ff88,
             emissiveIntensity: 0.3,
             shininess: 100
         });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(segment.x, segment.z, segment.y);
-        
-        // Rotate cylinder to align with movement direction
-        if (index < snake.length - 1) {
-            const nextSegment = snake[index + 1];
-            const direction = new THREE.Vector3(
-                nextSegment.x - segment.x,
-                nextSegment.z - segment.z,
-                nextSegment.y - segment.y
-            ).normalize();
-            
-            const up = new THREE.Vector3(0, 1, 0);
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromUnitVectors(up, direction);
-            mesh.setRotationFromQuaternion(quaternion);
-        } else if (index > 0) {
-            // For the tail, use the direction from previous segment
-            const prevSegment = snake[index - 1];
-            const direction = new THREE.Vector3(
-                segment.x - prevSegment.x,
-                segment.z - prevSegment.z,
-                segment.y - prevSegment.y
-            ).normalize();
-            
-            const up = new THREE.Vector3(0, 1, 0);
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromUnitVectors(up, direction);
-            mesh.setRotationFromQuaternion(quaternion);
-        }
-        
-        scene.add(mesh);
-        snakeMeshes.push(mesh);
-    });
-}
+        snakeMesh = new THREE.Mesh(geometry, material);
+        snakeMesh.position.set(interpolatedSnake[0].x, interpolatedSnake[0].z, interpolatedSnake[0].y);
+        scene.add(snakeMesh);
+        return;
+    }
 
-function updateSnakeMeshes() {
-    snake.forEach((segment, index) => {
-        if (snakeMeshes[index]) {
-            snakeMeshes[index].position.set(segment.x, segment.z, segment.y);
-            
-            // Update rotation based on movement direction
-            if (index < snake.length - 1) {
-                const nextSegment = snake[index + 1];
-                const direction = new THREE.Vector3(
-                    nextSegment.x - segment.x,
-                    nextSegment.z - segment.z,
-                    nextSegment.y - segment.y
-                ).normalize();
-                
-                const up = new THREE.Vector3(0, 1, 0);
-                const quaternion = new THREE.Quaternion();
-                quaternion.setFromUnitVectors(up, direction);
-                snakeMeshes[index].setRotationFromQuaternion(quaternion);
-            } else if (index > 0) {
-                // For the tail, use the direction from previous segment
-                const prevSegment = snake[index - 1];
-                const direction = new THREE.Vector3(
-                    segment.x - prevSegment.x,
-                    segment.z - prevSegment.z,
-                    segment.y - prevSegment.y
-                ).normalize();
-                
-                const up = new THREE.Vector3(0, 1, 0);
-                const quaternion = new THREE.Quaternion();
-                quaternion.setFromUnitVectors(up, direction);
-                snakeMeshes[index].setRotationFromQuaternion(quaternion);
-            }
-        }
+    // Create curve points from interpolated positions
+    const points = interpolatedSnake.map(seg => 
+        new THREE.Vector3(seg.x, seg.z, seg.y)
+    );
+
+    // Create Catmull-Rom curve for smooth interpolation
+    const curve = new THREE.CatmullRomCurve3(points);
+    curve.curveType = 'catmullrom';
+    curve.tension = 0.5;
+
+    // Create tube geometry along the curve
+    const tubeGeometry = new THREE.TubeGeometry(curve, interpolatedSnake.length * 8, 0.35, 16, false);
+    
+    // Create gradient material (head brighter, tail darker)
+    const material = new THREE.MeshPhongMaterial({
+        color: 0x00cc66,
+        emissive: 0x00cc66,
+        emissiveIntensity: 0.3,
+        shininess: 100
     });
+
+    snakeMesh = new THREE.Mesh(tubeGeometry, material);
+    scene.add(snakeMesh);
 }
 
 function spawnFood() {
@@ -328,23 +304,30 @@ function moveSnake() {
     // Check if ate food
     if (food && newHead.x === food.x && newHead.y === food.y && newHead.z === food.z) {
         snake.unshift(newHead);
+        // Add new interpolated position at head
+        interpolatedSnake.unshift({ x: newHead.x, y: newHead.y, z: newHead.z });
         score += 10;
         updateUI();
         createParticles(food.x, food.z, food.y, 0xff4444);
         playSound('eat');
         spawnFood();
-        createSnakeMeshes();
+        createSnakeMesh();
     } else {
         snake.unshift(newHead);
         snake.pop();
-        updateSnakeMeshes();
+        // Update interpolated positions to match new snake structure
+        // Keep the same number of interpolated segments
+        interpolatedSnake.unshift({ x: newHead.x, y: newHead.y, z: newHead.z });
+        interpolatedSnake.pop();
     }
 }
 
 function restartGame() {
-    // Clear snake meshes
-    snakeMeshes.forEach(mesh => scene.remove(mesh));
-    snakeMeshes = [];
+    // Clear snake mesh
+    if (snakeMesh) {
+        scene.remove(snakeMesh);
+        snakeMesh = null;
+    }
     
     // Clear food
     if (foodMesh) {
@@ -370,6 +353,19 @@ function updateUI() {
     document.getElementById('score').textContent = score;
 }
 
+function interpolateSnakePositions() {
+    // Smoothly interpolate each segment towards its target position
+    for (let i = 0; i < interpolatedSnake.length && i < snake.length; i++) {
+        const target = snake[i];
+        const current = interpolatedSnake[i];
+        
+        // Linear interpolation (lerp)
+        current.x += (target.x - current.x) * INTERPOLATION_SPEED;
+        current.y += (target.y - current.y) * INTERPOLATION_SPEED;
+        current.z += (target.z - current.z) * INTERPOLATION_SPEED;
+    }
+}
+
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -385,6 +381,12 @@ function animate(currentTime) {
         lastMoveTime = currentTime;
     }
 
+    // Smoothly interpolate snake positions
+    interpolateSnakePositions();
+
+    // Update snake mesh with interpolated positions
+    updateSnakeMesh();
+
     // Rotate food for visual effect
     if (foodMesh) {
         foodMesh.rotation.y += 0.05;
@@ -396,10 +398,10 @@ function animate(currentTime) {
     updateParticles();
 
     // Animate snake glow
-    snakeMeshes.forEach((mesh, index) => {
-        const pulse = 0.3 + Math.sin(currentTime * 0.01 + index * 0.5) * 0.1;
-        mesh.material.emissiveIntensity = pulse;
-    });
+    if (snakeMesh) {
+        const pulse = 0.3 + Math.sin(currentTime * 0.01) * 0.1;
+        snakeMesh.material.emissiveIntensity = pulse;
+    }
 
     renderer.render(scene, camera);
 }
