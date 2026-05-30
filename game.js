@@ -77,9 +77,6 @@ function createGrid() {
     const boxGeometry = new THREE.BoxGeometry(GRID_SIZE, GRID_HEIGHT, GRID_SIZE);
     const edgesGeometry = new THREE.EdgesGeometry(boxGeometry);
     const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.3 });
-    const wireframe = new THREE.LineSegments(edgesGeometry, lineMaterial);
-    wireframe.position.set(GRID_SIZE / 2 - 0.5, GRID_HEIGHT / 2 - 0.5, GRID_SIZE / 2 - 0.5);
-    scene.add(wireframe);
 
     // Create grid planes for each axis
     const gridMaterial = new THREE.MeshBasicMaterial({
@@ -93,11 +90,6 @@ function createGrid() {
     const floorGrid = new THREE.GridHelper(GRID_SIZE, GRID_SIZE, 0x444466, 0x333355);
     floorGrid.position.set(GRID_SIZE / 2 - 0.5, -0.5, GRID_SIZE / 2 - 0.5);
     scene.add(floorGrid);
-
-    // Ceiling grid
-    const ceilingGrid = new THREE.GridHelper(GRID_SIZE, GRID_SIZE, 0x444466, 0x333355);
-    ceilingGrid.position.set(GRID_SIZE / 2 - 0.5, GRID_HEIGHT - 0.5, GRID_SIZE / 2 - 0.5);
-    scene.add(ceilingGrid);
 }
 
 function initSnake() {
