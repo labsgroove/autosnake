@@ -1,5 +1,5 @@
 // Game Configuration
-const GRID_SIZE = 10;
+const GRID_SIZE = 9;
 const GRID_HEIGHT = 10;
 const CELL_SIZE = 1;
 const MOVE_INTERVAL = 150; // milliseconds between moves
