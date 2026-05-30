@@ -356,6 +356,9 @@ function restartGame() {
     particles.forEach(p => scene.remove(p.mesh));
     particles = [];
 
+    // Reset timing
+    lastMoveTime = 0;
+
     // Reset game
     initSnake();
     spawnFood();
