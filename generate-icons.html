@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Icons</title>
+</head>
+<body>
+    <h1>Icon Generator</h1>
+    <p>Click to generate PWA icons</p>
+    <button onclick="generateIcons()">Generate Icons</button>
+    <script>
+        function generateIcons() {
+            const sizes = [192, 512];
+            
+            sizes.forEach(size => {
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                
+                // Background
+                ctx.fillStyle = '#1a1a2e';
+                ctx.fillRect(0, 0, size, size);
+                
+                // Snake head
+                ctx.fillStyle = '#00ff88';
+                const snakeSize = size * 0.4;
+                const snakeX = (size - snakeSize) / 2;
+                const snakeY = (size - snakeSize) / 2;
+                ctx.fillRect(snakeX, snakeY, snakeSize, snakeSize);
+                
+                // Eyes
+                ctx.fillStyle = '#1a1a2e';
+                const eyeSize = snakeSize * 0.15;
+                ctx.fillRect(snakeX + snakeSize * 0.2, snakeY + snakeSize * 0.25, eyeSize, eyeSize);
+                ctx.fillRect(snakeX + snakeSize * 0.6, snakeY + snakeSize * 0.25, eyeSize, eyeSize);
+                
+                // Download
+                const link = document.createElement('a');
+                link.download = `icon-${size}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        }
+    </script>
+</body>
+</html>
