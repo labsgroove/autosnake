@@ -21,6 +21,15 @@ let particles = [];
 let audioContext;
 let interpolatedSnake = []; // Smoothly interpolated positions
 
+// Reusable geometries and materials to reduce memory
+let sharedSphereGeometry;
+let sharedParticleGeometry;
+let snakeMaterial;
+let headMaterial;
+let tailMaterial;
+let foodMaterial;
+let particleMaterial;
+
 // Initialize the game
 function init() {
     // Scene setup
@@ -108,9 +117,10 @@ function initSnake() {
 }
 
 function createSnakeMesh() {
-    // Remove old meshes
+    // Remove old meshes and dispose resources
     if (snakeMesh) {
         scene.remove(snakeMesh);
+        if (snakeMesh.geometry) snakeMesh.geometry.dispose();
         snakeMesh = null;
     }
     if (snakeHeadMesh) {
@@ -122,14 +132,44 @@ function createSnakeMesh() {
         snakeTailMesh = null;
     }
 
+    // Create shared materials if not exists
+    if (!snakeMaterial) {
+        snakeMaterial = new THREE.MeshPhongMaterial({
+            color: 0x00cc66,
+            emissive: 0x00cc66,
+            emissiveIntensity: 0.3,
+            shininess: 100
+        });
+    }
+    if (!headMaterial) {
+        headMaterial = new THREE.MeshPhongMaterial({
+            color: 0x00ff88,
+            emissive: 0x00ff88,
+            emissiveIntensity: 0.4,
+            shininess: 100
+        });
+    }
+    if (!tailMaterial) {
+        tailMaterial = new THREE.MeshPhongMaterial({
+            color: 0x00aa55,
+            emissive: 0x00aa55,
+            emissiveIntensity: 0.2,
+            shininess: 100
+        });
+    }
+    if (!sharedSphereGeometry) {
+        sharedSphereGeometry = new THREE.SphereGeometry(0.35, 16, 16);
+    }
+
     // Create curved tube using Catmull-Rom spline
     updateSnakeMesh();
 }
 
 function updateSnakeMesh() {
-    // Remove old mesh
+    // Remove old mesh and dispose geometry
     if (snakeMesh) {
         scene.remove(snakeMesh);
+        if (snakeMesh.geometry) snakeMesh.geometry.dispose();
     }
     if (snakeHeadMesh) {
         scene.remove(snakeHeadMesh);
@@ -143,14 +183,10 @@ function updateSnakeMesh() {
     // Need at least 2 points to create a curve
     if (interpolatedSnake.length < 2) {
         // Create a single sphere for single-segment snake
-        const geometry = new THREE.SphereGeometry(0.4, 32, 32);
-        const material = new THREE.MeshPhongMaterial({
-            color: 0x00ff88,
-            emissive: 0x00ff88,
-            emissiveIntensity: 0.3,
-            shininess: 100
-        });
-        snakeMesh = new THREE.Mesh(geometry, material);
+        if (!sharedSphereGeometry) {
+            sharedSphereGeometry = new THREE.SphereGeometry(0.4, 16, 16);
+        }
+        snakeMesh = new THREE.Mesh(sharedSphereGeometry, headMaterial);
         snakeMesh.position.set(interpolatedSnake[0].x, interpolatedSnake[0].z, interpolatedSnake[0].y);
         scene.add(snakeMesh);
         return;
@@ -166,42 +202,20 @@ function updateSnakeMesh() {
     curve.curveType = 'catmullrom';
     curve.tension = 0.5;
 
-    // Create tube geometry along the curve
-    const tubeGeometry = new THREE.TubeGeometry(curve, interpolatedSnake.length * 8, 0.35, 16, false);
-    
-    // Create gradient material (head brighter, tail darker)
-    const material = new THREE.MeshPhongMaterial({
-        color: 0x00cc66,
-        emissive: 0x00cc66,
-        emissiveIntensity: 0.3,
-        shininess: 100
-    });
+    // Create tube geometry along the curve - reduced segments for memory
+    const tubeGeometry = new THREE.TubeGeometry(curve, interpolatedSnake.length * 4, 0.35, 8, false);
 
-    snakeMesh = new THREE.Mesh(tubeGeometry, material);
+    snakeMesh = new THREE.Mesh(tubeGeometry, snakeMaterial);
     scene.add(snakeMesh);
 
-    // Add head sphere (brighter)
-    const headGeometry = new THREE.SphereGeometry(0.35, 32, 32);
-    const headMaterial = new THREE.MeshPhongMaterial({
-        color: 0x00ff88,
-        emissive: 0x00ff88,
-        emissiveIntensity: 0.4,
-        shininess: 100
-    });
-    snakeHeadMesh = new THREE.Mesh(headGeometry, headMaterial);
+    // Add head sphere (reusing shared geometry and material)
+    snakeHeadMesh = new THREE.Mesh(sharedSphereGeometry, headMaterial);
     const headPos = interpolatedSnake[0];
     snakeHeadMesh.position.set(headPos.x, headPos.z, headPos.y);
     scene.add(snakeHeadMesh);
 
-    // Add tail sphere (slightly smaller)
-    const tailGeometry = new THREE.SphereGeometry(0.35, 32, 32);
-    const tailMaterial = new THREE.MeshPhongMaterial({
-        color: 0x00aa55,
-        emissive: 0x00aa55,
-        emissiveIntensity: 0.2,
-        shininess: 100
-    });
-    snakeTailMesh = new THREE.Mesh(tailGeometry, tailMaterial);
+    // Add tail sphere (reusing shared geometry and material)
+    snakeTailMesh = new THREE.Mesh(sharedSphereGeometry, tailMaterial);
     const tailPos = interpolatedSnake[interpolatedSnake.length - 1];
     snakeTailMesh.position.set(tailPos.x, tailPos.z, tailPos.y);
     scene.add(snakeTailMesh);
@@ -238,15 +252,20 @@ function spawnFood() {
         scene.remove(foodMesh);
     }
 
-    // Create new food mesh with glow effect
-    const geometry = new THREE.SphereGeometry(0.4, 32, 32);
-    const material = new THREE.MeshPhongMaterial({
-        color: 0xff4444,
-        emissive: 0xff4444,
-        emissiveIntensity: 0.8,
-        shininess: 100
-    });
-    foodMesh = new THREE.Mesh(geometry, material);
+    // Create shared food material if not exists
+    if (!foodMaterial) {
+        foodMaterial = new THREE.MeshPhongMaterial({
+            color: 0xff4444,
+            emissive: 0xff4444,
+            emissiveIntensity: 0.8,
+            shininess: 100
+        });
+    }
+    if (!sharedSphereGeometry) {
+        sharedSphereGeometry = new THREE.SphereGeometry(0.4, 16, 16);
+    }
+
+    foodMesh = new THREE.Mesh(sharedSphereGeometry, foodMaterial);
     foodMesh.position.set(x, z, y);
     scene.add(foodMesh);
 }
@@ -375,15 +394,16 @@ function moveSnake() {
         // Keep the same number of interpolated segments
         interpolatedSnake.unshift({ x: newHead.x, y: newHead.y, z: newHead.z });
         interpolatedSnake.pop();
-        // Update tube mesh when snake moves (but not every frame)
+        // Update tube mesh when snake moves
         updateSnakeMesh();
     }
 }
 
 function restartGame() {
-    // Clear snake mesh
+    // Clear snake mesh and dispose resources
     if (snakeMesh) {
         scene.remove(snakeMesh);
+        if (snakeMesh.geometry) snakeMesh.geometry.dispose();
         snakeMesh = null;
     }
     if (snakeHeadMesh) {
@@ -401,8 +421,11 @@ function restartGame() {
         foodMesh = null;
     }
 
-    // Clear particles
-    particles.forEach(p => scene.remove(p.mesh));
+    // Clear particles and dispose their geometries
+    particles.forEach(p => {
+        scene.remove(p.mesh);
+        if (p.mesh.geometry) p.mesh.geometry.dispose();
+    });
     particles = [];
 
     // Reset timing
@@ -482,23 +505,29 @@ function animate(currentTime) {
 
 // Particle system
 function createParticles(x, y, z, color) {
-    const particleCount = 20;
+    const particleCount = 15; // Reduced from 20
     
-    for (let i = 0; i < particleCount; i++) {
-        const geometry = new THREE.SphereGeometry(0.1, 8, 8);
-        const material = new THREE.MeshBasicMaterial({
+    // Create shared particle geometry and material if not exists
+    if (!sharedParticleGeometry) {
+        sharedParticleGeometry = new THREE.SphereGeometry(0.08, 6, 6);
+    }
+    if (!particleMaterial) {
+        particleMaterial = new THREE.MeshBasicMaterial({
             color: color,
             transparent: true,
             opacity: 1
         });
-        const mesh = new THREE.Mesh(geometry, material);
+    }
+    
+    for (let i = 0; i < particleCount; i++) {
+        const mesh = new THREE.Mesh(sharedParticleGeometry, particleMaterial);
         
         mesh.position.set(x, y, z);
         
         const velocity = {
-            x: (Math.random() - 0.5) * 0.2,
-            y: (Math.random() - 0.5) * 0.2,
-            z: (Math.random() - 0.5) * 0.2
+            x: (Math.random() - 0.5) * 0.15,
+            y: (Math.random() - 0.5) * 0.15,
+            z: (Math.random() - 0.5) * 0.15
         };
         
         scene.add(mesh);
@@ -514,7 +543,7 @@ function updateParticles() {
         p.mesh.position.y += p.velocity.y;
         p.mesh.position.z += p.velocity.z;
         
-        p.life -= 0.02;
+        p.life -= 0.025; // Slightly faster fade out
         p.mesh.material.opacity = p.life;
         
         if (p.life <= 0) {
