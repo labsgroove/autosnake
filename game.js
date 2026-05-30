@@ -108,7 +108,7 @@ function createSnakeMeshes() {
 
     // Create new meshes with cylindrical segments
     snake.forEach((segment, index) => {
-        const geometry = new THREE.CylinderGeometry(0.4, 0.4, 0.8, 16);
+        const geometry = new THREE.CylinderGeometry(0.4, 0.4, 1, 16);
         const material = new THREE.MeshPhongMaterial({
             color: index === 0 ? 0x00ff88 : 0x00cc66,
             emissive: index === 0 ? 0x00ff88 : 0x00cc66,
