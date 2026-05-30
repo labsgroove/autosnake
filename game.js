@@ -10,6 +10,8 @@ let scene, camera, renderer;
 let snake = [];
 let food = null;
 let snakeMesh = null; // Single curved tube mesh
+let snakeHeadMesh = null; // Sphere for head
+let snakeTailMesh = null; // Sphere for tail
 let foodMesh = null;
 let gridHelper;
 let score = 0;
@@ -106,10 +108,18 @@ function initSnake() {
 }
 
 function createSnakeMesh() {
-    // Remove old mesh
+    // Remove old meshes
     if (snakeMesh) {
         scene.remove(snakeMesh);
         snakeMesh = null;
+    }
+    if (snakeHeadMesh) {
+        scene.remove(snakeHeadMesh);
+        snakeHeadMesh = null;
+    }
+    if (snakeTailMesh) {
+        scene.remove(snakeTailMesh);
+        snakeTailMesh = null;
     }
 
     // Create curved tube using Catmull-Rom spline
@@ -120,6 +130,14 @@ function updateSnakeMesh() {
     // Remove old mesh
     if (snakeMesh) {
         scene.remove(snakeMesh);
+    }
+    if (snakeHeadMesh) {
+        scene.remove(snakeHeadMesh);
+        snakeHeadMesh = null;
+    }
+    if (snakeTailMesh) {
+        scene.remove(snakeTailMesh);
+        snakeTailMesh = null;
     }
 
     // Need at least 2 points to create a curve
@@ -161,6 +179,32 @@ function updateSnakeMesh() {
 
     snakeMesh = new THREE.Mesh(tubeGeometry, material);
     scene.add(snakeMesh);
+
+    // Add head sphere (brighter)
+    const headGeometry = new THREE.SphereGeometry(0.35, 32, 32);
+    const headMaterial = new THREE.MeshPhongMaterial({
+        color: 0x00ff88,
+        emissive: 0x00ff88,
+        emissiveIntensity: 0.4,
+        shininess: 100
+    });
+    snakeHeadMesh = new THREE.Mesh(headGeometry, headMaterial);
+    const headPos = interpolatedSnake[0];
+    snakeHeadMesh.position.set(headPos.x, headPos.z, headPos.y);
+    scene.add(snakeHeadMesh);
+
+    // Add tail sphere (slightly smaller)
+    const tailGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+    const tailMaterial = new THREE.MeshPhongMaterial({
+        color: 0x00aa55,
+        emissive: 0x00aa55,
+        emissiveIntensity: 0.2,
+        shininess: 100
+    });
+    snakeTailMesh = new THREE.Mesh(tailGeometry, tailMaterial);
+    const tailPos = interpolatedSnake[interpolatedSnake.length - 1];
+    snakeTailMesh.position.set(tailPos.x, tailPos.z, tailPos.y);
+    scene.add(snakeTailMesh);
 }
 
 function spawnFood() {
@@ -328,6 +372,14 @@ function restartGame() {
         scene.remove(snakeMesh);
         snakeMesh = null;
     }
+    if (snakeHeadMesh) {
+        scene.remove(snakeHeadMesh);
+        snakeHeadMesh = null;
+    }
+    if (snakeTailMesh) {
+        scene.remove(snakeTailMesh);
+        snakeTailMesh = null;
+    }
     
     // Clear food
     if (foodMesh) {
@@ -401,6 +453,14 @@ function animate(currentTime) {
     if (snakeMesh) {
         const pulse = 0.3 + Math.sin(currentTime * 0.01) * 0.1;
         snakeMesh.material.emissiveIntensity = pulse;
+    }
+    if (snakeHeadMesh) {
+        const headPulse = 0.4 + Math.sin(currentTime * 0.01) * 0.15;
+        snakeHeadMesh.material.emissiveIntensity = headPulse;
+    }
+    if (snakeTailMesh) {
+        const tailPulse = 0.2 + Math.sin(currentTime * 0.01) * 0.05;
+        snakeTailMesh.material.emissiveIntensity = tailPulse;
     }
 
     renderer.render(scene, camera);
